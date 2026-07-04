@@ -1,0 +1,324 @@
+// NexusHR - Prisma Schema for SQLite
+// SQLite-compatible: enums → String, Json → String, String[] → String (CSV)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Department
+// ─────────────────────────────────────────────────────────────
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  color       String   @default("#6366f1")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users        User[]
+  recruitments Recruitment[]
+
+  @@map("departments")
+}
+
+// ─────────────────────────────────────────────────────────────
+// User  (role: EMPLOYEE | HR | ADMIN)
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id               String    @id @default(cuid())
+  employeeId       String    @unique @default(cuid())
+  name             String
+  email            String    @unique
+  passwordHash     String
+  role             String    @default("EMPLOYEE")
+  avatar           String?
+  phone            String?
+  position         String?
+  joinDate         DateTime  @default(now())
+  dateOfBirth      DateTime?
+  address          String?
+  bio              String?
+  emergencyContact String?
+  salary           Float     @default(50000)
+  isVerified       Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  verifyToken      String?
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  refreshToken     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  attendances       Attendance[]
+  leaves            Leave[]
+  approvedLeaves    Leave[]        @relation("ApprovedLeaves")
+  payrolls          Payroll[]
+  moodEntries       MoodEntry[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  sentNotifications Notification[] @relation("SentNotifications")
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Attendance (status: PRESENT | ABSENT | HALF_DAY | LATE | ON_LEAVE | HOLIDAY | WEEKEND)
+// ─────────────────────────────────────────────────────────────
+
+model Attendance {
+  id          String   @id @default(cuid())
+  date        DateTime
+  checkIn     DateTime?
+  checkOut    DateTime?
+  status      String    @default("ABSENT")
+  workHours   Float?
+  lateMinutes Int?
+  note        String?
+  location    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@map("attendances")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Leave (type: CASUAL | SICK | ANNUAL | MATERNITY | PATERNITY | UNPAID | COMPENSATORY)
+//        (status: PENDING | APPROVED | REJECTED | CANCELLED)
+// ─────────────────────────────────────────────────────────────
+
+model Leave {
+  id               String    @id @default(cuid())
+  type             String
+  startDate        DateTime
+  endDate          DateTime
+  days             Int
+  reason           String
+  status           String    @default("PENDING")
+  attachmentUrl    String?
+  aiRecommendation String?   // stored as JSON string
+  rejectionReason  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  approvedById String?
+  approvedBy   User?   @relation("ApprovedLeaves", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@map("leaves")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Leave Balance
+// ─────────────────────────────────────────────────────────────
+
+model LeaveBalance {
+  id            String   @id @default(cuid())
+  userId        String
+  year          Int
+  casual        Int      @default(12)
+  sick          Int      @default(12)
+  annual        Int      @default(15)
+  maternity     Int      @default(90)
+  paternity     Int      @default(15)
+  unpaid        Int      @default(0)
+  compensatory  Int      @default(0)
+  usedCasual    Int      @default(0)
+  usedSick      Int      @default(0)
+  usedAnnual    Int      @default(0)
+  usedMaternity Int      @default(0)
+  usedPaternity Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, year])
+  @@map("leave_balances")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Payroll (status: PENDING | PROCESSING | PAID | FAILED)
+// ─────────────────────────────────────────────────────────────
+
+model Payroll {
+  id          String   @id @default(cuid())
+  month       Int
+  year        Int
+  basic       Float
+  hra         Float    @default(0)
+  allowances  Float    @default(0)
+  deductions  Float    @default(0)
+  tax         Float    @default(0)
+  pf          Float    @default(0)
+  netSalary   Float
+  workingDays Int      @default(22)
+  presentDays Int      @default(22)
+  status      String   @default("PENDING")
+  creditedAt  DateTime?
+  slipUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month, year])
+  @@index([userId])
+  @@map("payrolls")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mood Entry (mood: EXCELLENT | GOOD | NEUTRAL | STRESSED | BURNOUT)
+// ─────────────────────────────────────────────────────────────
+
+model MoodEntry {
+  id           String   @id @default(cuid())
+  date         DateTime
+  mood         String
+  energyLevel  Int      @default(5)
+  stressLevel  Int      @default(5)
+  note         String?
+  burnoutScore Float?
+  createdAt    DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@map("mood_entries")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Notification (type: LEAVE_REQUEST | LEAVE_APPROVED | ... | SYSTEM)
+// ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  type      String
+  isRead    Boolean  @default(false)
+  metadata  String?  // stored as JSON string
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  senderId String?
+  sender   User?   @relation("SentNotifications", fields: [senderId], references: [id])
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Recruitment (status: OPEN | CLOSED | ON_HOLD)
+// ─────────────────────────────────────────────────────────────
+
+model Recruitment {
+  id           String   @id @default(cuid())
+  title        String
+  description  String
+  requirements String
+  skills       String   @default("[]") // JSON array stored as string
+  location     String   @default("Remote")
+  type         String   @default("Full-time")
+  salary       String?
+  status       String   @default("OPEN")
+  closedAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  createdById String  @default("")
+  candidates  Candidate[]
+
+  @@map("recruitments")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Candidate (status: APPLIED | SCREENING | INTERVIEW | OFFER | REJECTED | HIRED)
+// ─────────────────────────────────────────────────────────────
+
+model Candidate {
+  id           String   @id @default(cuid())
+  name         String
+  email        String
+  phone        String?
+  resumeUrl    String?
+  coverLetter  String?
+  aiScore      Float?
+  aiSummary    String?
+  aiSkills     String   @default("[]") // JSON array as string
+  aiStrengths  String   @default("[]")
+  aiWeaknesses String   @default("[]")
+  status       String   @default("APPLIED")
+  appliedAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  recruitmentId String
+  recruitment   Recruitment @relation(fields: [recruitmentId], references: [id], onDelete: Cascade)
+
+  @@index([recruitmentId])
+  @@map("candidates")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Audit Log
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String?
+  metadata  String?  // stored as JSON string
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  actorId String
+  actor   User   @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([actorId])
+  @@index([entity])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Announcement
+// ─────────────────────────────────────────────────────────────
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("announcements")
+}
